@@ -36,7 +36,7 @@ class PaymentEventService:
             risk_category=classification.category.value,
             recommended_action=proposal.recommended_action.value,
             confidence=proposal.confidence,
-            reason=proposal.reason,
+            reason=f"{proposal.reason} Policy: {policy_result.reason}",
             estimated_recovery_amount=proposal.estimated_recovery_amount,
             policy_decision=policy_result.decision.value,
         )
