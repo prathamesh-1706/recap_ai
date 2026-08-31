@@ -169,3 +169,4 @@ def test_invalid_success_rate():
         ),
     )
     assert response.status_code == 422
+    
