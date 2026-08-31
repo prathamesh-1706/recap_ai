@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 
 from app.agents.base import RecoveryAgent
 from app.agents.deterministic_agent import DeterministicRecoveryAgent
+from app.agents.ai_agent import AIRecoveryAgent
+from app.core.config import get_settings
 from app.models.audit_log import AuditLog
 from app.models.payment_event import PaymentEvent
 from app.models.recommendation import Recommendation
@@ -18,7 +20,19 @@ class PaymentEventService:
         agent: RecoveryAgent | None = None,
         policy_engine: PolicyEngine | None = None,
     ) -> None:
-        self._agent = agent or DeterministicRecoveryAgent()
+        settings = get_settings()
+
+        if agent is not None:
+            self._agent = agent
+        elif settings.ai_agent_enabled:
+            try:
+                self._agent = AIRecoveryAgent()
+            except Exception:
+                self._agent = DeterministicRecoveryAgent()
+        else:
+            self._agent = DeterministicRecoveryAgent()
+
+        self._fallback_agent = DeterministicRecoveryAgent()
         self._policy = policy_engine or PolicyEngine()
 
     def ingest_payment_event(
@@ -67,12 +81,23 @@ class PaymentEventService:
 
         customer_context = build_customer_context(event)
 
-        proposal = self._agent.propose(
-            event,
-            classification.category,
-            classification.reason,
-            customer_context,
-        )
+        try:
+            proposal = self._agent.propose(
+                event,
+                classification.category,
+                classification.reason,
+                customer_context,
+            )
+        except Exception:
+            if self._agent is self._fallback_agent:
+                raise
+
+            proposal = self._fallback_agent.propose(
+                event,
+                classification.category,
+                classification.reason,
+                customer_context,
+            )
 
         policy_result = self._policy.evaluate(
             event,

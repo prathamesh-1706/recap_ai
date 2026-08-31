@@ -10,7 +10,12 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "sqlite:///./recap.db"
+
     razorpay_webhook_secret: str = ""
+
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.6-luna"
+    ai_agent_enabled: bool = False
 
 
 @lru_cache
