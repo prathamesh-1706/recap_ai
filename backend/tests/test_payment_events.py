@@ -7,7 +7,12 @@ from tests.conftest import client, payment_event_payload
 
 def test_valid_payment_event():
     api = client()
-    response = api.post("/api/v1/events/payment", json=payment_event_payload())
+    response = api.post(
+        "/api/v1/events/payment",
+        json=payment_event_payload(),
+        headers={"Idempotency-Key": "idem-valid"},
+    )
+
     assert response.status_code == 200
     body = response.json()
     assert body["payment_id"] == "pay_test_001"
@@ -32,6 +37,7 @@ def test_temporary_failure():
             error_code="GATEWAY_ERROR",
             error_description="Issuer unavailable",
         ),
+        headers={"Idempotency-Key": "idem-tmp"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -48,6 +54,7 @@ def test_insufficient_funds():
             error_code="INSUFFICIENT_FUNDS",
             error_description="Not enough balance",
         ),
+        headers={"Idempotency-Key": "idem-nsf"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -64,6 +71,7 @@ def test_payment_method_problem():
             error_code="EXPIRED_CARD",
             error_description="Card expired",
         ),
+        headers={"Idempotency-Key": "idem-pm"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -80,6 +88,7 @@ def test_risk_failure():
             error_code="FRAUD",
             error_description="Suspected fraud",
         ),
+        headers={"Idempotency-Key": "idem-risk"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -96,6 +105,7 @@ def test_unknown_failure():
             error_code="SOME_UNMAPPED_CODE",
             error_description="Unrecognized decline",
         ),
+        headers={"Idempotency-Key": "idem-unknown"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -112,18 +122,21 @@ def test_retry_limit_exceeded():
             error_code="GATEWAY_ERROR",
             retry_count=3,
         ),
+        headers={"Idempotency-Key": "idem-retry-max"},
     )
     assert response.status_code == 200
     body = response.json()
     assert body["recommended_action"] == "WAIT_AND_RETRY"
     assert body["policy_decision"] == "DENIED"
     assert "retry" in body["reason"].lower() or True
-    # policy denial reason is stored on audit; recommendation.reason is agent text
 
 
 def test_policy_denial():
     event = PaymentEventIn.model_validate(
-        payment_event_payload(error_code="FRAUD", retry_count=0)
+        payment_event_payload(
+            error_code="FRAUD",
+            retry_count=0,
+        )
     )
     proposal = AgentProposal(
         recommended_action=RecoveryAction.RETRY,
@@ -132,7 +145,9 @@ def test_policy_denial():
         estimated_recovery_amount=event.amount,
     )
     result = PolicyEngine().evaluate(
-        event, RiskCategory.SUSPECTED_RISK_FAILURE, proposal
+        event,
+        RiskCategory.SUSPECTED_RISK_FAILURE,
+        proposal,
     )
     assert result.decision == PolicyDecision.DENIED
     assert "risk" in result.reason.lower() or "fraud" in result.reason.lower()
@@ -149,6 +164,8 @@ def test_invalid_payment_amount():
 def test_invalid_success_rate():
     response = client().post(
         "/api/v1/events/payment",
-        json=payment_event_payload(customer_previous_success_rate=1.5),
+        json=payment_event_payload(
+            customer_previous_success_rate=1.5,
+        ),
     )
     assert response.status_code == 422

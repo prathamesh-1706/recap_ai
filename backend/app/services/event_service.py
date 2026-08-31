@@ -25,8 +25,41 @@ class PaymentEventService:
         self,
         db: Session,
         event: PaymentEventIn,
+        idempotency_key: str,
     ) -> RecommendationOut:
-        stored_event = PaymentEvent(**event.model_dump())
+
+        existing_event = (
+            db.query(PaymentEvent)
+            .filter(
+                PaymentEvent.idempotency_key == idempotency_key
+            )
+            .first()
+        )
+
+        if existing_event is not None:
+            existing_recommendation = (
+                db.query(Recommendation)
+                .filter(
+                    Recommendation.payment_id
+                    == existing_event.payment_id
+                )
+                .order_by(
+                    Recommendation.created_at.desc(),
+                    Recommendation.id.desc(),
+                )
+                .first()
+            )
+
+            if existing_recommendation is not None:
+                return RecommendationOut.model_validate(
+                    existing_recommendation
+                )
+
+        stored_event = PaymentEvent(
+            **event.model_dump(),
+            idempotency_key=idempotency_key,
+        )
+
         db.add(stored_event)
         db.flush()
 
@@ -52,10 +85,16 @@ class PaymentEventService:
             risk_category=classification.category.value,
             recommended_action=proposal.recommended_action.value,
             confidence=proposal.confidence,
-            reason=f"{proposal.reason} Policy: {policy_result.reason}",
-            estimated_recovery_amount=proposal.estimated_recovery_amount,
+            reason=(
+                f"{proposal.reason} "
+                f"Policy: {policy_result.reason}"
+            ),
+            estimated_recovery_amount=(
+                proposal.estimated_recovery_amount
+            ),
             policy_decision=policy_result.decision.value,
         )
+
         db.add(recommendation)
 
         audit = AuditLog(
@@ -64,23 +103,32 @@ class PaymentEventService:
             risk_category=classification.category.value,
             proposed_action=proposal.recommended_action.value,
             policy_decision=policy_result.decision.value,
-            reason=f"{proposal.reason} Policy: {policy_result.reason}",
+            reason=(
+                f"{proposal.reason} "
+                f"Policy: {policy_result.reason}"
+            ),
         )
+
         db.add(audit)
 
         db.commit()
         db.refresh(recommendation)
 
-        return RecommendationOut.model_validate(recommendation)
+        return RecommendationOut.model_validate(
+            recommendation
+        )
 
     def get_latest_recommendation(
         self,
         db: Session,
         payment_id: str,
     ) -> RecommendationOut | None:
+
         row = (
             db.query(Recommendation)
-            .filter(Recommendation.payment_id == payment_id)
+            .filter(
+                Recommendation.payment_id == payment_id
+            )
             .order_by(
                 Recommendation.created_at.desc(),
                 Recommendation.id.desc(),

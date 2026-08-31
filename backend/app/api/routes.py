@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -19,17 +19,30 @@ def health() -> HealthOut:
 @router.post("/api/v1/events/payment", response_model=RecommendationOut)
 def create_payment_event(
     payload: PaymentEventIn,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ) -> RecommendationOut:
-    return _service.ingest_payment_event(db, payload)
+    return _service.ingest_payment_event(
+        db,
+        payload,
+        idempotency_key,
+    )
 
 
-@router.get("/api/v1/recommendations/{payment_id}", response_model=RecommendationOut)
+@router.get(
+    "/api/v1/recommendations/{payment_id}",
+    response_model=RecommendationOut,
+)
 def get_recommendation(
     payment_id: str,
     db: Session = Depends(get_db),
 ) -> RecommendationOut:
     result = _service.get_latest_recommendation(db, payment_id)
+
     if result is None:
-        raise HTTPException(status_code=404, detail="Recommendation not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Recommendation not found",
+        )
+
     return result
