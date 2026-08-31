@@ -2,11 +2,12 @@ from dataclasses import dataclass
 
 from app.core.enums import RecoveryAction, RiskCategory
 from app.schemas.payment_event import PaymentEventIn
+from app.services.customer_context import CustomerContext
 
 
 @dataclass(frozen=True)
 class AgentProposal:
-    """Structured proposal produced by the recovery agent (stub or future LLM)."""
+    """Structured proposal produced by the recovery agent."""
 
     recommended_action: RecoveryAction
     confidence: float
@@ -22,5 +23,6 @@ class RecoveryAgent:
         event: PaymentEventIn,
         risk_category: RiskCategory,
         classifier_reason: str,
+        customer_context: CustomerContext,
     ) -> AgentProposal:
         raise NotImplementedError

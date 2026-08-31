@@ -8,6 +8,7 @@ from app.models.recommendation import Recommendation
 from app.policies.engine import PolicyEngine
 from app.schemas.payment_event import PaymentEventIn
 from app.schemas.recommendation import RecommendationOut
+from app.services.customer_context import build_customer_context
 from app.services.risk_classifier import classify_payment_event
 
 
@@ -20,16 +21,31 @@ class PaymentEventService:
         self._agent = agent or DeterministicRecoveryAgent()
         self._policy = policy_engine or PolicyEngine()
 
-    def ingest_payment_event(self, db: Session, event: PaymentEventIn) -> RecommendationOut:
+    def ingest_payment_event(
+        self,
+        db: Session,
+        event: PaymentEventIn,
+    ) -> RecommendationOut:
         stored_event = PaymentEvent(**event.model_dump())
         db.add(stored_event)
         db.flush()
 
         classification = classify_payment_event(event)
+
+        customer_context = build_customer_context(event)
+
         proposal = self._agent.propose(
-            event, classification.category, classification.reason
+            event,
+            classification.category,
+            classification.reason,
+            customer_context,
         )
-        policy_result = self._policy.evaluate(event, classification.category, proposal)
+
+        policy_result = self._policy.evaluate(
+            event,
+            classification.category,
+            proposal,
+        )
 
         recommendation = Recommendation(
             payment_id=event.payment_id,
@@ -51,20 +67,28 @@ class PaymentEventService:
             reason=f"{proposal.reason} Policy: {policy_result.reason}",
         )
         db.add(audit)
+
         db.commit()
         db.refresh(recommendation)
 
         return RecommendationOut.model_validate(recommendation)
 
     def get_latest_recommendation(
-        self, db: Session, payment_id: str
+        self,
+        db: Session,
+        payment_id: str,
     ) -> RecommendationOut | None:
         row = (
             db.query(Recommendation)
             .filter(Recommendation.payment_id == payment_id)
-            .order_by(Recommendation.created_at.desc(), Recommendation.id.desc())
+            .order_by(
+                Recommendation.created_at.desc(),
+                Recommendation.id.desc(),
+            )
             .first()
         )
+
         if row is None:
             return None
+
         return RecommendationOut.model_validate(row)

@@ -1,7 +1,8 @@
 from app.agents.deterministic_agent import DeterministicRecoveryAgent
 from app.core.enums import PaymentStatus, RecoveryAction, RiskCategory
-from app.simulator.generator import generate_payment_event
+from app.services.customer_context import build_customer_context
 from app.services.risk_classifier import classify_payment_event
+from app.simulator.generator import generate_payment_event
 
 
 def get_proposal(scenario: str):
@@ -11,6 +12,7 @@ def get_proposal(scenario: str):
     )
 
     classification = classify_payment_event(event)
+    customer_context = build_customer_context(event)
 
     agent = DeterministicRecoveryAgent()
 
@@ -18,6 +20,7 @@ def get_proposal(scenario: str):
         event=event,
         risk_category=classification.category,
         classifier_reason=classification.reason,
+        customer_context=customer_context,
     )
 
     return event, classification, proposal
