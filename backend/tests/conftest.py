@@ -5,6 +5,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.agents.deterministic_agent import DeterministicRecoveryAgent
+from app.services.event_service import PaymentEventService
+from app.api.routes import get_event_service
+
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -46,7 +50,6 @@ def payment_event_payload(**overrides) -> dict:
 
 
 def client() -> TestClient:
-    # Reset the database for each test's first client() call.
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
@@ -57,6 +60,13 @@ def client() -> TestClient:
         finally:
             db.close()
 
+    deterministic_service = PaymentEventService(
+        agent=DeterministicRecoveryAgent()
+    )
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_event_service] = (
+        lambda: deterministic_service
+    )
 
     return TestClient(app)

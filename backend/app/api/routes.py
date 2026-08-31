@@ -15,7 +15,12 @@ from app.services.event_service import PaymentEventService
 from app.webhooks.razorpay import handle_razorpay_webhook
 
 router = APIRouter()
+
 _service = PaymentEventService()
+
+
+def get_event_service() -> PaymentEventService:
+    return _service
 
 
 @router.get("/health", response_model=HealthOut)
@@ -31,8 +36,9 @@ def create_payment_event(
     payload: PaymentEventIn,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: Session = Depends(get_db),
+    service: PaymentEventService = Depends(get_event_service),
 ) -> RecommendationOut:
-    return _service.ingest_payment_event(
+    return service.ingest_payment_event(
         db,
         payload,
         idempotency_key,
@@ -46,8 +52,9 @@ def create_payment_event(
 def get_recommendation(
     payment_id: str,
     db: Session = Depends(get_db),
-) -> RecommendationOut:
-    result = _service.get_latest_recommendation(
+    service: PaymentEventService = Depends(get_event_service),
+) -> RecommendationOut | None:
+    result = service.get_latest_recommendation(
         db,
         payment_id,
     )

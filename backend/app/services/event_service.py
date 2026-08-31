@@ -11,8 +11,8 @@ from app.policies.engine import PolicyEngine
 from app.schemas.payment_event import PaymentEventIn
 from app.schemas.recommendation import RecommendationOut
 from app.services.customer_context import build_customer_context
+from app.services.recovery_orchestrator import RecoveryOrchestrator
 from app.services.risk_classifier import classify_payment_event
-
 
 class PaymentEventService:
     def __init__(
@@ -22,18 +22,37 @@ class PaymentEventService:
     ) -> None:
         settings = get_settings()
 
+        ai_agent = None
+
         if agent is not None:
             self._agent = agent
+            ai_agent = agent
+
         elif settings.ai_agent_enabled:
             try:
-                self._agent = AIRecoveryAgent()
+                if settings.ai_provider.lower() == "ollama":
+                    from app.agents.ollama_agent import OllamaRecoveryAgent
+
+                    self._agent = OllamaRecoveryAgent()
+                else:
+                    self._agent = AIRecoveryAgent()
+
+                ai_agent = self._agent
+
             except Exception:
                 self._agent = DeterministicRecoveryAgent()
+
         else:
             self._agent = DeterministicRecoveryAgent()
 
         self._fallback_agent = DeterministicRecoveryAgent()
         self._policy = policy_engine or PolicyEngine()
+
+        self._orchestrator = RecoveryOrchestrator(
+            ai_agent=ai_agent,
+            deterministic_agent=self._fallback_agent,
+            policy_engine=self._policy,
+        )
 
     def ingest_payment_event(
         self,
@@ -81,29 +100,15 @@ class PaymentEventService:
 
         customer_context = build_customer_context(event)
 
-        try:
-            proposal = self._agent.propose(
-                event,
-                classification.category,
-                classification.reason,
-                customer_context,
-            )
-        except Exception:
-            if self._agent is self._fallback_agent:
-                raise
-
-            proposal = self._fallback_agent.propose(
-                event,
-                classification.category,
-                classification.reason,
-                customer_context,
-            )
-
-        policy_result = self._policy.evaluate(
-            event,
-            classification.category,
-            proposal,
+        decision = self._orchestrator.decide(
+            event=event,
+            risk_category=classification.category,
+            classifier_reason=classification.reason,
+            customer_context=customer_context,
         )
+
+        proposal = decision.proposal
+        policy_result = decision.policy_result
 
         recommendation = Recommendation(
             payment_id=event.payment_id,
