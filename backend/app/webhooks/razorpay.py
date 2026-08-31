@@ -1,7 +1,7 @@
-from datetime import UTC, datetime
 import hashlib
 import hmac
 import json
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
@@ -16,8 +16,6 @@ def verify_razorpay_signature(
     signature: str,
     secret: str,
 ) -> bool:
-    """Verify Razorpay webhook signature using HMAC-SHA256."""
-
     expected_signature = hmac.new(
         secret.encode("utf-8"),
         payload,
@@ -31,40 +29,35 @@ def verify_razorpay_signature(
 
 
 def build_payment_event(payload: dict) -> PaymentEventIn:
-    """Convert a Razorpay payment.failed payload into our internal event."""
-
     payment = payload["payload"]["payment"]["entity"]
 
-    payment_created_at = payment.get("created_at")
+    created_at = payment.get("created_at")
 
-    if payment_created_at is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing payment created_at",
+    if isinstance(created_at, int | float):
+        created_at = datetime.fromtimestamp(
+            created_at,
+            tz=UTC,
         )
 
-    notes = payment.get("notes") or {}
-
-    customer_id = notes.get("customer_id") or "unknown"
-
-    order_id = payment.get("order_id") or "unknown"
+    if created_at is None:
+        created_at = datetime.now(UTC)
 
     return PaymentEventIn(
         payment_id=payment["id"],
-        order_id=order_id,
-        customer_id=customer_id,
+        order_id=payment.get("order_id") or "unknown",
+        customer_id=(
+            payment.get("notes", {}).get("customer_id")
+            or "unknown"
+        ),
         amount=payment["amount"],
         currency=payment["currency"],
         status="failed",
         method=payment.get("method"),
-        error_code=payment.get("error_code") or None,
-        error_description=payment.get("error_description") or None,
+        error_code=payment.get("error_code"),
+        error_description=payment.get("error_description"),
         retry_count=0,
         customer_previous_success_rate=0.8,
-        created_at=datetime.fromtimestamp(
-            payment_created_at,
-            tz=UTC,
-        ),
+        created_at=created_at,
     )
 
 
@@ -72,12 +65,8 @@ async def handle_razorpay_webhook(
     request: Request,
     db: Session,
 ) -> dict:
-    """Handle and process Razorpay webhook events."""
-
     settings = get_settings()
 
-    # IMPORTANT:
-    # Razorpay signature verification must use the raw request body.
     raw_body = await request.body()
 
     signature = request.headers.get(
@@ -91,16 +80,15 @@ async def handle_razorpay_webhook(
         )
 
     if not verify_razorpay_signature(
-        payload=raw_body,
-        signature=signature,
-        secret=settings.razorpay_webhook_secret,
+        raw_body,
+        signature,
+        settings.razorpay_webhook_secret,
     ):
         raise HTTPException(
             status_code=400,
             detail="Invalid Razorpay webhook signature",
         )
 
-    # Razorpay recommends using this event ID for idempotency.
     event_id = request.headers.get(
         "x-razorpay-event-id"
     )
@@ -121,7 +109,6 @@ async def handle_razorpay_webhook(
 
     event_type = payload.get("event")
 
-    # Currently RECAP only processes failed payments.
     if event_type != "payment.failed":
         return {
             "status": "ignored",

@@ -10,8 +10,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "sqlite:///./recap.db"
-
-    razorpay_webhook_secret: str = "test_secret"
+    razorpay_webhook_secret: str = ""
 
 
 @lru_cache
