@@ -996,3 +996,143 @@ tbody tr:hover {
     gap: 7px;
   }
 }
+
+.simulator-panel {
+  margin-top: 24px;
+}
+
+.simulator-controls {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.simulator-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.simulator-field label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+}
+
+.simulator-field select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.simulate-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #111111;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.simulate-button:hover {
+  transform: translateY(-1px);
+}
+
+.simulate-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.simulation-result {
+  margin-top: 20px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.simulation-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.simulation-result-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.simulation-result-header span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+}
+
+.simulation-result-header strong {
+  font-size: 13px;
+}
+
+.simulation-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.simulation-metrics > div {
+  padding: 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.simulation-metrics span {
+  display: block;
+  font-size: 11px;
+  opacity: 0.55;
+  margin-bottom: 6px;
+}
+
+.simulation-metrics strong {
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.simulation-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.75;
+}
+
+@media (max-width: 800px) {
+  .simulator-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .simulation-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

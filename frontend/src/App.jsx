@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import {
   Activity,
   AlertTriangle,
@@ -33,55 +35,6 @@ import {
 
 import "./App.css";
 
-const recoveryData = [
-  { day: "Mon", recovered: 42, attempts: 58 },
-  { day: "Tue", recovered: 51, attempts: 67 },
-  { day: "Wed", recovered: 48, attempts: 63 },
-  { day: "Thu", recovered: 71, attempts: 82 },
-  { day: "Fri", recovered: 64, attempts: 78 },
-  { day: "Sat", recovered: 82, attempts: 91 },
-  { day: "Sun", recovered: 76, attempts: 88 },
-];
-
-const decisions = [
-  {
-    id: "pay_test_001",
-    customer: "cust_test_001",
-    risk: "Temporary failure",
-    action: "WAIT_AND_RETRY",
-    confidence: "95%",
-    amount: "₹50,000",
-    status: "Approved",
-  },
-  {
-    id: "pay_nsf_014",
-    customer: "cust_10482",
-    risk: "Insufficient funds",
-    action: "SEND_MESSAGE",
-    confidence: "91%",
-    amount: "₹12,500",
-    status: "Approved",
-  },
-  {
-    id: "pay_pm_029",
-    customer: "cust_82711",
-    risk: "Payment method",
-    action: "UPDATE_METHOD",
-    confidence: "88%",
-    amount: "₹28,000",
-    status: "Approved",
-  },
-  {
-    id: "pay_risk_041",
-    customer: "cust_21908",
-    risk: "Suspected risk",
-    action: "ESCALATE",
-    confidence: "97%",
-    amount: "₹85,000",
-    status: "Approved",
-  },
-];
-
 function StatCard({
   icon: Icon,
   label,
@@ -104,7 +57,8 @@ function StatCard({
       </div>
 
       <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div> <div className="stat-description">{description}</div>
+      <div className="stat-value">{value}</div>
+      <div className="stat-description">{description}</div>
     </div>
   );
 }
@@ -127,6 +81,172 @@ function RiskBar({ label, value, amount }) {
 }
 
 function App() {
+  const [dashboard, setDashboard] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const [simulating, setSimulating] = useState(false);
+  const [simulationResult, setSimulationResult] = useState(null);
+  const [scenario, setScenario] = useState("insufficient_funds");
+
+  // Fetch live dashboard
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        const response = await fetch(
+          "http://127.0.0.1:8000/dashboard"
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Dashboard API returned ${response.status}`
+          );
+        }
+
+        const data = await response.json();
+
+        setDashboard(data);
+        setError(null);
+      } catch (err) {
+        console.error("Failed to load dashboard:", err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboard();
+
+    const interval = setInterval(fetchDashboard, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Simulate payment
+  const simulatePayment = async () => {
+    setSimulating(true);
+    setSimulationResult(null);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:8000/api/v1/simulator/generate",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            scenario,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Simulator API returned ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+
+      setSimulationResult(data);
+
+      // Refresh dashboard immediately
+      const dashboardResponse = await fetch(
+        "http://127.0.0.1:8000/dashboard"
+      );
+
+      if (!dashboardResponse.ok) {
+        throw new Error(
+          `Dashboard API returned ${dashboardResponse.status}`
+        );
+      }
+
+      const dashboardData = await dashboardResponse.json();
+
+      setDashboard(dashboardData);
+    } catch (err) {
+      console.error("Simulation failed:", err);
+      setError(err.message);
+    } finally {
+      setSimulating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="app-shell">
+        <main className="main">
+          <div className="content">
+            <section className="hero">
+              <div>
+                <div className="eyebrow">
+                  <Sparkles size={14} />
+                  AI-POWERED RECOVERY
+                </div>
+
+                <h1>Loading RECAP...</h1>
+
+                <p>
+                  Connecting to the live recovery intelligence engine.
+                </p>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (error || !dashboard) {
+    return (
+      <div className="app-shell">
+        <main className="main">
+          <div className="content">
+            <section className="hero">
+              <div>
+                <div className="eyebrow">
+                  <AlertTriangle size={14} />
+                  CONNECTION ERROR
+                </div>
+
+                <h1>RECAP API unavailable.</h1>
+
+                <p>
+                  Start the FastAPI backend and refresh the dashboard.
+                </p>
+
+                {error && (
+                  <p style={{ marginTop: "12px", opacity: 0.6 }}>
+                    {error}
+                  </p>
+                )}
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const { stats, recovery_trend, decisions } = dashboard;
+
+  const latestDecision = decisions[0];
+
+  const riskTotal =
+    dashboard.risk_breakdown.reduce(
+      (sum, item) => sum + item.count,
+      0
+    ) || 1;
+
+  const riskData = dashboard.risk_breakdown.map((item) => ({
+    ...item,
+    percentage: Math.round(
+      (item.count / riskTotal) * 100
+    ),
+  }));
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -137,7 +257,9 @@ function App() {
 
           <div>
             <div className="brand-name">RECAP</div>
-            <div className="brand-subtitle">Revenue Intelligence</div>
+            <div className="brand-subtitle">
+              Revenue Intelligence
+            </div>
           </div>
         </div>
 
@@ -148,43 +270,70 @@ function App() {
         </div>
 
         <nav className="nav">
-          <div className="nav-section">COMMAND CENTER</div>
+          <div className="nav-section">
+            COMMAND CENTER
+          </div>
 
-          <a className="nav-item active" href="#overview">
+          <a
+            className="nav-item active"
+            href="#overview"
+          >
             <LayoutDashboard size={18} />
             Overview
           </a>
 
-          <a className="nav-item" href="#payments">
+          <a
+            className="nav-item"
+            href="#payments"
+          >
             <CreditCard size={18} />
             Payments
-            <span className="nav-count">126</span>
+            <span className="nav-count">
+              {stats.total_payments}
+            </span>
           </a>
 
-          <a className="nav-item" href="#recovery">
+          <a
+            className="nav-item"
+            href="#recovery"
+          >
             <RefreshCw size={18} />
             Recovery
           </a>
 
-          <a className="nav-item" href="#ai">
+          <a
+            className="nav-item"
+            href="#ai"
+          >
             <BrainCircuit size={18} />
             AI Decisions
             <span className="ai-dot" />
           </a>
 
-          <a className="nav-item" href="#risk">
+          <a
+            className="nav-item"
+            href="#risk"
+          >
             <AlertTriangle size={18} />
             Risk
           </a>
 
-          <div className="nav-section second">SYSTEM</div>
+          <div className="nav-section second">
+            SYSTEM
+          </div>
 
-          <a className="nav-item" href="#audit">
+          <a
+            className="nav-item"
+            href="#audit"
+          >
             <ShieldCheck size={18} />
             Audit Logs
           </a>
 
-          <a className="nav-item" href="#simulator">
+          <a
+            className="nav-item"
+            href="#simulator"
+          >
             <Activity size={18} />
             Simulator
           </a>
@@ -208,10 +357,12 @@ function App() {
 
           <div className="profile">
             <div className="avatar">P</div>
+
             <div className="profile-info">
               <strong>Prathamesh</strong>
               <span>Administrator</span>
             </div>
+
             <MoreHorizontal size={18} />
           </div>
         </div>
@@ -245,7 +396,10 @@ function App() {
           </div>
         </header>
 
-        <div className="content" id="overview">
+        <div
+          className="content"
+          id="overview"
+        >
           <section className="hero">
             <div>
               <div className="eyebrow">
@@ -253,88 +407,106 @@ function App() {
                 AI-POWERED RECOVERY
               </div>
 
-              <h1>Good evening, Prathamesh.</h1>
+              <h1>
+                Good evening, Prathamesh.
+              </h1>
 
               <p>
-                Here's what RECAP recovered and prevented today.
+                RECAP is monitoring payment events and
+                generating intelligent recovery
+                recommendations in real time.
               </p>
             </div>
-
-            <button className="date-button">
-              <Activity size={16} />
-              Last 7 days
-              <ChevronRight size={15} />
-            </button>
           </section>
 
           <section className="stats-grid">
             <StatCard
               icon={CircleDollarSign}
-              label="Recovery value"
-              value="₹4.82L"
-              change="18.4%"
-              description="Estimated recoverable revenue"
+              label="Recovery Opportunity"
+              value={`₹${stats.recovered_amount.toLocaleString(
+                "en-IN"
+              )}`}
+              change="LIVE"
+              description="Estimated value from approved recovery actions"
             />
 
             <StatCard
               icon={TrendingUp}
-              label="Recovery rate"
-              value="87.4%"
-              change="6.8%"
-              description="Across failed payments"
+              label="Recovery Action Rate"
+              value={`${stats.recovery_rate}%`}
+              change="LIVE"
+              description="Actionable approved recommendations"
             />
 
             <StatCard
               icon={CreditCard}
-              label="Payment events"
-              value="126"
-              change="12.2%"
+              label="Payment Events"
+              value={stats.total_payments}
+              change="LIVE"
               description="Processed by RECAP"
             />
 
             <StatCard
-              icon={CheckCircle2}
-              label="Recovered"
-              value="₹2.14L"
-              change="24.6%"
-              description="Revenue successfully recovered"
+              icon={XCircle}
+              label="Failed Payments"
+              value={stats.failed_payments}
+              change="LIVE"
+              description="Payments requiring recovery decisions"
             />
           </section>
 
           <section className="main-grid">
-            <div className="panel recovery-panel" id="recovery">
+            <div
+              className="panel recovery-panel"
+              id="recovery"
+            >
               <div className="panel-header">
                 <div>
-                  <div className="panel-title">Recovery performance</div>
+                  <div className="panel-title">
+                    Recovery performance
+                  </div>
+
                   <div className="panel-subtitle">
-                    Recovery attempts vs successful recovery
+                    Recovery opportunity and recommendation attempts
                   </div>
                 </div>
 
-                <button className="panel-action">
-                  View report
-                  <ChevronRight size={14} />
-                </button>
-              </div>
+                <div className="chart-legend">
+                  <span>
+                    <i className="legend-dot recovery" />
+                    Recovery opportunity
+                  </span>
 
-              <div className="chart-legend">
-                <span>
-                  <i className="legend-dot recovery" />
-                  Recovered
-                </span>
-                <span>
-                  <i className="legend-dot attempts" />
-                  Attempts
-                </span>
+                  <span>
+                    <i className="legend-dot attempts" />
+                    Attempts
+                  </span>
+                </div>
               </div>
 
               <div className="chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={recoveryData}>
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                >
+                  <AreaChart data={recovery_trend}>
                     <defs>
-                      <linearGradient id="recoveryGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopOpacity={0.24} />
-                        <stop offset="100%" stopOpacity={0} />
+                      <linearGradient
+                        id="recoveryGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopOpacity={0.24}
+                        />
+
+                        <stop
+                          offset="100%"
+                          stopOpacity={0}
+                        />
                       </linearGradient>
                     </defs>
 
@@ -347,39 +519,28 @@ function App() {
                       dataKey="day"
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: "#737b8c", fontSize: 12 }}
-                      dy={10}
+                      tick={{ fontSize: 11 }}
                     />
 
                     <YAxis
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: "#737b8c", fontSize: 12 }}
-                      width={32}
+                      tick={{ fontSize: 11 }}
                     />
 
-                    <Tooltip
-                      contentStyle={{
-                        background: "#151922",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: "10px",
-                        color: "#fff",
-                      }}
-                    />
+                    <Tooltip />
 
                     <Area
                       type="monotone"
                       dataKey="attempts"
-                      stroke="#5c6678"
                       strokeWidth={2}
-                      fill="none"
+                      fill="transparent"
                     />
 
                     <Area
                       type="monotone"
                       dataKey="recovered"
-                      stroke="#a3ff5c"
-                      strokeWidth={2.5}
+                      strokeWidth={2}
                       fill="url(#recoveryGradient)"
                     />
                   </AreaChart>
@@ -387,12 +548,18 @@ function App() {
               </div>
             </div>
 
-            <div className="panel ai-panel" id="ai">
+            <div
+              className="panel ai-panel"
+              id="ai"
+            >
               <div className="panel-header">
                 <div>
-                  <div className="panel-title">AI decision engine</div>
+                  <div className="panel-title">
+                    AI recovery agent
+                  </div>
+
                   <div className="panel-subtitle">
-                    Current intelligence layer
+                    Local intelligence engine
                   </div>
                 </div>
 
@@ -403,165 +570,368 @@ function App() {
               </div>
 
               <div className="ai-model">
-                <div className="ai-orb">
-                  <BrainCircuit size={25} />
+                <div className="ai-model-icon">
+                  <BrainCircuit size={22} />
                 </div>
 
                 <div>
                   <strong>gemma3:4b</strong>
                   <span>Ollama Local Agent</span>
                 </div>
-
-                <div className="model-check">
-                  <CheckCircle2 size={17} />
-                </div>
               </div>
 
               <div className="ai-metrics">
                 <div>
                   <span>Decisions</span>
-                  <strong>126</strong>
+                  <strong>{decisions.length}</strong>
                 </div>
 
                 <div>
                   <span>AI handled</span>
-                  <strong>104</strong>
+                  <strong>{decisions.length}</strong>
                 </div>
 
                 <div>
                   <span>Fallback</span>
-                  <strong>22</strong>
+                  <strong>0</strong>
                 </div>
 
                 <div>
                   <span>Avg. confidence</span>
-                  <strong>91.8%</strong>
+
+                  <strong>
+                    {decisions.length
+                      ? `${Math.round(
+                          (decisions.reduce(
+                            (sum, decision) =>
+                              sum +
+                              decision.confidence,
+                            0
+                          ) /
+                            decisions.length) *
+                            100
+                        )}%`
+                      : "0%"}
+                  </strong>
                 </div>
               </div>
 
               <div className="ai-message">
                 <Sparkles size={16} />
+
                 <div>
-                  <strong>AI intelligence active</strong>
+                  <strong>
+                    AI intelligence active
+                  </strong>
+
                   <span>
-                    Every recommendation is validated by the Policy Engine.
+                    Every recommendation is validated by
+                    the Policy Engine.
                   </span>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="lower-grid" id="risk">
-            <div className="panel">
-              <div className="panel-header">
-                <div>
-                  <div className="panel-title">Risk distribution</div>
-                  <div className="panel-subtitle">
-                    Payment failure classification
+          {/* SIMULATOR */}
+          <section
+            className="panel simulator-panel"
+            id="simulator"
+          >
+            <div className="panel-header">
+              <div>
+                <div className="panel-title">
+                  Payment Simulator
+                </div>
+
+                <div className="panel-subtitle">
+                  Generate a synthetic payment event and
+                  run it through RECAP
+                </div>
+              </div>
+
+              <span className="status-badge">
+                <span className="status-dot" />
+                LIVE
+              </span>
+            </div>
+
+            <div className="simulator-controls">
+              <div className="simulator-field">
+                <label>
+                  Failure scenario
+                </label>
+
+                <select
+                  value={scenario}
+                  onChange={(event) =>
+                    setScenario(event.target.value)
+                  }
+                  disabled={simulating}
+                >
+                  <option value="temporary_failure">
+                    Temporary Failure
+                  </option>
+
+                  <option value="insufficient_funds">
+                    Insufficient Funds
+                  </option>
+
+                  <option value="payment_method_problem">
+                    Payment Method Problem
+                  </option>
+
+                  <option value="risk_failure">
+                    Risk Failure
+                  </option>
+
+                  <option value="unknown_failure">
+                    Unknown Failure
+                  </option>
+
+                  <option value="successful_payment">
+                    Successful Payment
+                  </option>
+                </select>
+              </div>
+
+              <button
+                className="simulate-button"
+                onClick={simulatePayment}
+                disabled={simulating}
+              >
+                <Zap size={16} />
+
+                {simulating
+                  ? "Processing..."
+                  : "Simulate Payment"}
+              </button>
+            </div>
+
+            {simulationResult && (
+              <div className="simulation-result">
+                <div className="simulation-result-header">
+                  <div>
+                    <span>
+                      Latest simulation
+                    </span>
+
+                    <strong>
+                      {simulationResult.payment_id}
+                    </strong>
+                  </div>
+
+                  <span className="approved-badge">
+                    <CheckCircle2 size={14} />
+                    {simulationResult.policy_decision}
+                  </span>
+                </div>
+
+                <div className="simulation-metrics">
+                  <div>
+                    <span>Risk</span>
+
+                    <strong>
+                      {simulationResult.risk_category.replace(
+                        /_/g,
+                        " "
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      AI Recommendation
+                    </span>
+
+                    <strong>
+                      {simulationResult.recommended_action}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Confidence</span>
+
+                    <strong>
+                      {Math.round(
+                        simulationResult.confidence * 100
+                      )}
+                      %
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Estimated Recovery
+                    </span>
+
+                    <strong>
+                      ₹
+                      {simulationResult.estimated_recovery_amount.toLocaleString(
+                        "en-IN"
+                      )}
+                    </strong>
                   </div>
                 </div>
 
-                <button className="icon-only">
-                  <MoreHorizontal size={18} />
-                </button>
+                <div className="simulation-reason">
+                  <BrainCircuit size={15} />
+
+                  <span>
+                    {simulationResult.reason}
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section
+            className="lower-grid"
+            id="risk"
+          >
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <div className="panel-title">
+                    Risk distribution
+                  </div>
+
+                  <div className="panel-subtitle">
+                    Classification of payment failures
+                  </div>
+                </div>
               </div>
 
               <div className="risk-list">
-                <RiskBar
-                  label="Temporary failure"
-                  value={42}
-                  amount="53 events"
-                />
-
-                <RiskBar
-                  label="Insufficient funds"
-                  value={28}
-                  amount="35 events"
-                />
-
-                <RiskBar
-                  label="Payment method"
-                  value={18}
-                  amount="23 events"
-                />
-
-                <RiskBar
-                  label="Suspected risk"
-                  value={8}
-                  amount="10 events"
-                />
-
-                <RiskBar
-                  label="Unknown"
-                  value={4}
-                  amount="5 events"
-                />
+                {riskData.map((risk) => (
+                  <RiskBar
+                    key={risk.category}
+                    label={risk.category.replace(
+                      /_/g,
+                      " "
+                    )}
+                    value={risk.percentage}
+                    amount={`${risk.count} event${
+                      risk.count === 1
+                        ? ""
+                        : "s"
+                    }`}
+                  />
+                ))}
               </div>
             </div>
 
             <div className="panel decision-highlight">
               <div className="panel-header">
                 <div>
-                  <div className="panel-title">Latest AI decision</div>
+                  <div className="panel-title">
+                    Latest AI decision
+                  </div>
+
                   <div className="panel-subtitle">
-                    pay_test_001
+                    {latestDecision?.payment_id ??
+                      "No decisions yet"}
                   </div>
                 </div>
 
                 <span className="approved-badge">
                   <CheckCircle2 size={14} />
-                  APPROVED
+                  {latestDecision?.status ?? "N/A"}
                 </span>
               </div>
 
-              <div className="decision-action">
-                <div className="action-icon">
-                  <RefreshCw size={23} />
+              {latestDecision ? (
+                <>
+                  <div className="decision-action">
+                    <div className="action-icon">
+                      <RefreshCw size={23} />
+                    </div>
+
+                    <div>
+                      <span>
+                        Recommended action
+                      </span>
+
+                      <strong>
+                        {latestDecision.action}
+                      </strong>
+                    </div>
+
+                    <div className="confidence">
+                      <strong>
+                        {Math.round(
+                          latestDecision.confidence *
+                            100
+                        )}
+                        %
+                      </strong>
+
+                      <span>
+                        confidence
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="decision-reason">
+                    <div className="reason-icon">
+                      <BrainCircuit size={15} />
+                    </div>
+
+                    <p>
+                      RECAP classified this payment as{" "}
+                      {latestDecision.risk.replace(
+                        /_/g,
+                        " "
+                      )}{" "}
+                      and recommends{" "}
+                      {latestDecision.action.replace(
+                        /_/g,
+                        " "
+                      )}
+                      .
+                    </p>
+                  </div>
+
+                  <div className="decision-footer">
+                    <span>
+                      <ShieldCheck size={14} />
+                      Policy validated
+                    </span>
+
+                    <span>
+                      <Zap size={14} />
+                      AI proposal
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="decision-reason">
+                  <div className="reason-icon">
+                    <AlertTriangle size={15} />
+                  </div>
+
+                  <p>
+                    No AI decision is currently
+                    available.
+                  </p>
                 </div>
-
-                <div>
-                  <span>Recommended action</span>
-                  <strong>WAIT_AND_RETRY</strong>
-                </div>
-
-                <div className="confidence">
-                  <strong>95%</strong>
-                  <span>confidence</span>
-                </div>
-              </div>
-
-              <div className="decision-reason">
-                <div className="reason-icon">
-                  <BrainCircuit size={15} />
-                </div>
-
-                <p>
-                  Customer has high payment reliability and the gateway
-                  failure appears temporary. RECAP recommends waiting before
-                  attempting recovery.
-                </p>
-              </div>
-
-              <div className="decision-footer">
-                <span>
-                  <ShieldCheck size={14} />
-                  Policy validated
-                </span>
-
-                <span>
-                  <Zap size={14} />
-                  AI proposal
-                </span>
-              </div>
+              )}
             </div>
           </section>
 
-          <section className="panel decisions-panel" id="payments">
+          <section
+            className="panel decisions-panel"
+            id="payments"
+          >
             <div className="panel-header">
               <div>
-                <div className="panel-title">Recent recovery decisions</div>
+                <div className="panel-title">
+                  Recent recovery decisions
+                </div>
+
                 <div className="panel-subtitle">
-                  Latest recommendations generated by RECAP
+                  Latest recommendations generated by
+                  RECAP
                 </div>
               </div>
 
@@ -586,37 +956,62 @@ function App() {
 
                 <tbody>
                   {decisions.map((decision) => (
-                    <tr key={decision.id}>
+                    <tr
+                      key={decision.payment_id}
+                    >
                       <td>
                         <div className="payment-cell">
                           <div className="payment-icon">
                             <CreditCard size={15} />
                           </div>
+
                           <div>
-                            <strong>{decision.id}</strong>
-                            <span>{decision.customer}</span>
+                            <strong>
+                              {decision.payment_id}
+                            </strong>
+
+                            <span>
+                              {decision.customer_id}
+                            </span>
                           </div>
                         </div>
                       </td>
 
                       <td>
-                        <span className="risk-label">{decision.risk}</span>
+                        <span className="risk-label">
+                          {decision.risk.replace(
+                            /_/g,
+                            " "
+                          )}
+                        </span>
                       </td>
 
                       <td>
                         <span className="action-label">
-                          {decision.action}
+                          {decision.action.replace(
+                            /_/g,
+                            " "
+                          )}
                         </span>
                       </td>
 
                       <td>
                         <span className="confidence-label">
-                          {decision.confidence}
+                          {Math.round(
+                            decision.confidence *
+                              100
+                          )}
+                          %
                         </span>
                       </td>
 
                       <td>
-                    <strong>{decision.amount}</strong>
+                        <strong>
+                          ₹
+                          {decision.amount.toLocaleString(
+                            "en-IN"
+                          )}
+                        </strong>
                       </td>
 
                       <td>
@@ -634,7 +1029,11 @@ function App() {
 
           <footer className="footer">
             <span>RECAP v0.1.0</span>
-            <span>Revenue Intelligence & Recovery Agent</span>
+
+            <span>
+              Revenue Intelligence & Recovery Agent
+            </span>
+
             <span className="footer-status">
               <span className="online-pulse" />
               API Operational
@@ -647,3 +1046,4 @@ function App() {
 }
 
 export default App;
+
