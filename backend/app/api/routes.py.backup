@@ -15,15 +15,13 @@ from app.services.event_service import PaymentEventService
 from app.webhooks.razorpay import handle_razorpay_webhook
 from app.schemas.dashboard import DashboardOut
 from app.services.dashboard_service import DashboardService
-from app.schemas.simulator import SimulatorRequest
-from app.simulator.generator import PaymentEventGenerator
 
 
 router = APIRouter()
 
 _service = PaymentEventService()
 _dashboard_service = DashboardService()
-_simulator_service = PaymentEventGenerator()
+
 
 def get_dashboard_service() -> DashboardService:
     return _dashboard_service
@@ -92,22 +90,4 @@ async def razorpay_webhook(
     return await handle_razorpay_webhook(
         request,
         db,
-    )
-
-@router.post("/api/v1/simulator/generate")
-def simulate_payment(
-    payload: SimulatorRequest,
-    db: Session = Depends(get_db),
-    service: PaymentEventService = Depends(get_event_service),
-):
-    event = _simulator_service.generate_payment_event(
-        scenario=payload.scenario,
-    )
-
-    idempotency_key = f"sim_{event.payment_id}"
-
-    return service.ingest_payment_event(
-        db,
-        event,
-        idempotency_key,
     )
