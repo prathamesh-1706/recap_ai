@@ -1,276 +1,491 @@
-# RECAP Architecture
+## RECAP Architecture
 
-**RECAP** — Revenue Intelligence & Recovery Agent  
-This document describes the intended system architecture. Application code, Docker, Razorpay wiring, and LLM integration are **not** implemented in this documentation phase.
+**RECAP — Revenue Intelligence & Recovery Agent**
+
+RECAP is an AI-powered payment recovery intelligence system designed for failed-payment recovery scenarios.
+
+The architecture separates AI reasoning from deterministic decision-making:
+
+> **AI proposes. Policy decides.**
+
+The current MVP focuses on failed-payment scenarios, local AI inference using Ollama/Gemma, policy-controlled recommendations, audit logging, Razorpay webhook integration, and a React operator dashboard.
 
 ---
 
-## 1. High-level architecture
+## 1. High-Level Architecture
 
-Core principle: **the AI never directly controls financial actions.**
+```text
+Razorpay / Payment Simulator
+          │
+          ▼
+    Event Ingestion
+          │
+          ▼
+    Risk Classification
+          │
+          ▼
+      AI Agent
+   Ollama / Gemma 3:4b
+          │
+          ▼
+ Recovery Recommendation
+          │
+          ▼
+    Policy Engine
+          │
+      ┌───┴───┐
+      ▼       ▼
+  APPROVED   DENIED
+      │       │
+      └───┬───┘
+          ▼
+      Audit Log
+          │
+          ▼
+    React Dashboard
+```
+
+The system is intentionally divided into separate layers so that the AI recommendation does not automatically become a financial action.
+
+---
+
+# 2. Event Ingestion
+
+The ingestion layer accepts payment events from:
+
+* Razorpay webhook integration
+* Internal payment simulator for development and demonstration
+
+The simulator provides controlled failure scenarios without requiring real financial transactions.
+
+Examples include:
+
+* Temporary failure
+* Insufficient funds
+* Payment method problem
+* Risk failure
+* Unknown failure
+* Successful payment
+
+The event is normalized into RECAP's internal payment-event representation before further processing.
+
+---
+
+# 3. Risk Classification
+
+The risk classifier determines the category and context of the payment event.
+
+For the MVP, the primary focus is failed payments.
+
+The classifier provides information used by the recovery pipeline, such as:
+
+* Failure category
+* Payment context
+* Amount
+* Risk characteristics
+* Failure reason
+
+The classifier does not directly execute recovery actions.
+
+---
+
+# 4. AI Agent Layer
+
+The AI layer uses:
+
+**Ollama + Gemma 3:4b**
+
+The AI agent receives structured payment and risk context and proposes a recovery strategy.
+
+Typical outputs include:
+
+* Recommended action
+* Confidence
+* Reasoning
+* Estimated recovery amount
+* Recovery explanation
+
+Conceptually:
+
+```text
+Payment Context
+      │
+      ▼
+Gemma 3:4b
+      │
+      ▼
+Structured Recovery Proposal
+```
+
+The AI is a decision-support component.
+
+### AI does not directly control financial actions.
+
+It cannot bypass the Policy Engine.
+
+---
+
+# 5. Policy Engine
+
+The Policy Engine is the deterministic control layer.
+
+It evaluates the AI-generated recommendation against predefined rules.
+
+```text
+AI Proposal
+     │
+     ▼
+Policy Engine
+     │
+ ┌───┴────┐
+ ▼        ▼
+APPROVED  DENIED
+```
+
+The Policy Engine is intentionally not an LLM.
+
+Its purpose is to provide predictable and explainable decisions.
+
+### Core principle
+
+> **The AI provides intelligence. The Policy Engine provides control.**
+
+This prevents the AI model's confidence score or reasoning from becoming an unrestricted financial authorization mechanism.
+
+---
+
+# 6. Recovery Orchestration
+
+The recovery orchestrator coordinates the major components of the recovery pipeline.
+
+Conceptually:
+
+```text
+Payment Event
+     │
+     ▼
+Risk Classification
+     │
+     ▼
+Customer / Payment Context
+     │
+     ▼
+AI Recommendation
+     │
+     ▼
+Policy Evaluation
+     │
+     ▼
+Recovery Decision
+```
+
+The orchestrator provides the central application flow connecting event processing, risk analysis, AI recommendations, policy evaluation, and audit logging.
+
+---
+
+# 7. Audit Logging
+
+RECAP records the important stages of a recovery decision.
+
+The audit system provides visibility into:
 
 ```text
 Event
-  → Detection
-  → AI reasoning
-  → Proposed action
-  → Deterministic policy engine
-  → Approved / rejected
-  → Action executor
-  → Outcome
-  → Audit log
+  ↓
+Risk
+  ↓
+AI Recommendation
+  ↓
+Policy Decision
+  ↓
+Recovery Result / Decision
 ```
 
-- The **AI proposes**.
-- The **policy engine decides**.
-- The **executor acts**.
+Audit records can contain information such as:
 
-```mermaid
-flowchart TD
-  E[Event ingestion] --> D[Revenue risk detection]
-  D --> A[AI agent: structured proposal]
-  A --> P[Policy / guardrail engine]
-  P -->|approved| X[Action executor]
-  P -->|rejected| L[Audit log]
-  X --> O[Outcome tracking]
-  O --> L
-  D --> L
-  A --> L
-  P --> L
-  X --> L
+* Payment/event identifier
+* Risk category
+* AI recommendation
+* Confidence
+* Policy decision
+* Reason
+* Timestamp
+* Recovery information
+
+This allows an operator to understand **what RECAP decided and why**.
+
+---
+
+# 8. Razorpay Integration Boundary
+
+RECAP includes a Razorpay webhook integration layer.
+
+The intended flow is:
+
+```text
+Razorpay
+   │
+   ▼
+Webhook Endpoint
+   │
+   ▼
+RECAP Event Processing
 ```
 
-**Stack (when implementation begins):** Python 3.11+, FastAPI, Pydantic, SQLAlchemy, SQLite (PostgreSQL later if required), Next.js / React / Tailwind, Razorpay Test Mode, LLM structured outputs, Docker, GitHub.
+The webhook layer provides the integration boundary between Razorpay payment events and RECAP's internal processing pipeline.
+
+For the current MVP:
+
+* Razorpay integration is focused on receiving payment-related events.
+* Demonstration scenarios use the internal simulator.
+* Production payment execution is outside the MVP.
+* Live Razorpay credentials are not required for the demo.
+* Secrets remain outside source control.
+
+This allows the recovery intelligence to be demonstrated safely without performing real financial transactions.
 
 ---
 
-## 2. Event ingestion layer
+# 9. Database Layer
 
-**Role:** Accept external events and persist them as immutable intake records before any reasoning.
+The MVP uses:
 
-**MVP sources:**
+* SQLite
+* SQLAlchemy
 
-- Razorpay webhooks (payment failed and related payment events).
-- Optional internal/manual case creation for demos (same schema as ingested events).
+The database supports the application's payment-event, recommendation, and audit-related persistence.
 
-**Responsibilities:**
+The frontend does not access SQLite directly.
 
-- Authenticate webhook signatures (Razorpay webhook secret).
-- Idempotency: same event id must not create duplicate cases.
-- Normalize to an internal event schema (source, type, payload ref, timestamps, payment identifiers, amount, currency).
-- Enqueue or synchronously hand off to detection (MVP may be synchronous).
+Instead:
 
-**Out of this layer:** AI calls, policy, Razorpay write APIs.
+```text
+React Frontend
+      │
+      ▼
+FastAPI API
+      │
+      ▼
+Application Services
+      │
+      ▼
+SQLAlchemy
+      │
+      ▼
+SQLite
+```
 
-```mermaid
-flowchart LR
-  RZ[Razorpay webhooks] --> WH[Webhook endpoint]
-  WH --> ID[Idempotency + signature]
-  ID --> EV[Stored events]
-  EV --> DET[Detection layer]
+This maintains a clear separation between the operator interface and persistence layer.
+
+---
+
+# 10. Backend Architecture
+
+The backend is implemented using FastAPI.
+
+```text
+backend/app/
+
+agents/
+    AI and deterministic agent implementations
+
+api/
+    REST API routes
+
+core/
+    Configuration and enums
+
+db/
+    Database configuration
+
+models/
+    SQLAlchemy models
+
+policies/
+    Deterministic policy engine
+
+schemas/
+    Pydantic API schemas
+
+services/
+    Business and recovery services
+
+simulator/
+    Payment failure scenarios
+
+webhooks/
+    Razorpay webhook integration
+```
+
+The backend follows a service-oriented structure so that AI, policy, persistence, and API concerns remain separated.
+
+---
+
+# 11. Frontend Architecture
+
+The operator dashboard is implemented using:
+
+* React
+* Vite
+* Recharts
+* Lucide React
+
+The frontend communicates with the FastAPI backend.
+
+```text
+React Dashboard
+      │
+      │ HTTP
+      ▼
+FastAPI Backend
+      │
+      ▼
+RECAP Services
+```
+
+The dashboard provides visibility into:
+
+* Recovery opportunities
+* Payment events
+* Failed payments
+* Risk distribution
+* AI decisions
+* Confidence
+* Recovery recommendations
+* Audit logs
+* Payment simulator results
+
+The browser does not contain Razorpay secrets or direct database access.
+
+---
+
+# 12. End-to-End Decision Flow
+
+A typical failed payment follows this path:
+
+```text
+1. Payment fails
+        ↓
+2. RECAP receives the event
+        ↓
+3. Failure/risk category is identified
+        ↓
+4. Relevant context is collected
+        ↓
+5. AI analyzes the recovery opportunity
+        ↓
+6. AI proposes a recovery action
+        ↓
+7. Policy Engine evaluates the proposal
+        ↓
+8. RECAP produces an approved/denied decision
+        ↓
+9. Decision is recorded in the audit system
+        ↓
+10. Dashboard displays the result
+```
+
+The important architectural boundary is:
+
+```text
+             AI
+              │
+        "What should we do?"
+              │
+              ▼
+       Policy Engine
+              │
+        "Are we allowed?"
+              │
+              ▼
+          Decision
 ```
 
 ---
 
-## 3. Revenue risk detection layer
+# 13. Why This Architecture?
 
-**Role:** Decide whether an ingested event represents **revenue at risk** and open (or update) a **risk case**.
+A financial system should not give unrestricted control to an LLM.
 
-**Responsibilities:**
+RECAP therefore separates:
 
-- Map event type to a leakage category (MVP: failed payments).
-- Compute **amount at risk** from payment/order data.
-- Deduplicate / attach to an existing open case when appropriate.
-- Emit a case snapshot for the AI layer (facts only: ids, amounts, failure codes, timestamps).
+| Component             | Responsibility                   |
+| --------------------- | -------------------------------- |
+| Event ingestion       | Receive payment events           |
+| Risk classifier       | Understand failure/risk category |
+| AI agent              | Propose recovery strategy        |
+| Policy Engine         | Deterministically approve/reject |
+| Recovery orchestrator | Coordinate the decision flow     |
+| Audit system          | Record the decision trail        |
+| Dashboard             | Provide operator visibility      |
 
-**Does not:** Recommend actions, call the LLM, or execute recovery.
+This provides a clear separation between:
 
-Future detectors (same interface, new rules): checkout abandonment, subscriptions, method problems, system degradation, B2B overdue, other recoverable leakage.
+**Reasoning → Control → Accountability**
 
 ---
 
-## 4. AI agent layer
+# 14. Current MVP vs Future Architecture
 
-**Role:** Reason over a risk case and emit a **structured proposed action**. Never execute.
+The current MVP prioritizes a working, demonstrable recovery intelligence pipeline.
 
-**MVP:** LLM with structured outputs (Pydantic schemas). Tool calling is **later**.
+### Implemented MVP
 
-**Inputs (facts):** case id, category, amount at risk, event facts, limited merchant context.
+* FastAPI backend
+* Payment event processing
+* Razorpay webhook boundary
+* Payment simulator
+* Risk classification
+* Customer/payment context
+* Ollama/Gemma 3:4b AI agent
+* Recovery recommendations
+* Deterministic Policy Engine
+* Recovery orchestration
+* Audit logging
+* React dashboard
+* Automated backend tests
 
-**Outputs (structured):**
+### Future extensions
 
-- Likely cause / investigation summary
-- Estimated recoverable amount
-- Proposed action type + parameters
-- Rationale (why this action)
-- Confidence (informational only; **not** a policy override)
+The architecture can later be extended with:
 
-**Hard boundary:** This layer must not invoke Razorpay mutating APIs or the action executor. It may, in the future, use **read-only** tools; writes still go through policy → executor.
+* Policy-approved action executors
+* Real Razorpay Test Mode action APIs
+* Recovery outcome tracking
+* More recovery strategies
+* Merchant-configurable policies
+* Human approval workflows
+* Additional revenue leakage categories
+* PostgreSQL
+* Asynchronous event queues
+* Read-only AI investigation tools
+* Multi-merchant support
+* Production infrastructure
 
-```mermaid
-flowchart TD
-  CASE[Risk case facts] --> LLM[LLM structured output]
-  LLM --> PROP[Proposed action]
-  PROP --> POL[Policy engine]
+These extensions do not change the fundamental architecture:
+
+```text
+Event
+  ↓
+Risk
+  ↓
+AI Proposal
+  ↓
+Policy
+  ↓
+Controlled Action
+  ↓
+Outcome
+  ↓
+Audit
 ```
 
 ---
 
-## 5. Policy / guardrail layer
+# 15. Architecture Principle
 
-**Role:** Deterministic approve / reject. Same inputs → same decision.
+RECAP is built around one central principle:
 
-**Inputs:** proposed action, case facts, merchant policy config, engine version.
+> **AI proposes. Policy decides. Audit explains.**
 
-**Example rule families (illustrative, not a product redesign):**
-
-- Action type allowlist
-- Max amount for auto-execution vs require reject / human review
-- Retry count and cooldown
-- Forbidden actions (e.g. refunds, payouts) unless explicitly allowed
-- Category-specific rules (MVP: failed payment only)
-
-**Outputs:** `approved` | `rejected`, reason codes, policy version, rule hits.
-
-**Hard boundary:** No LLM inside this layer. Rejection still writes to the audit log. Executor is not called on reject.
-
----
-
-## 6. Action execution layer
-
-**Role:** Perform only **policy-approved** actions.
-
-**Responsibilities:**
-
-- Verify approval token / record (case id, action id, policy version, expiry).
-- Dispatch to adapters (notification, Razorpay retry where permitted, internal status).
-- Catch and record execution failures without retrying via the LLM.
-- Return structured result to outcome tracking and audit.
-
-**Hard boundary:** No execution without a stored approval. No reinterpretation of the proposal.
-
----
-
-## 7. Outcome tracking
-
-**Role:** Close the loop: did the intervention recover revenue?
-
-**Signals (MVP):**
-
-- Subsequent Razorpay events for the same payment/order (captured / authorized / still failed).
-- Executor result (notification sent, retry API accepted, etc.).
-
-**Stored fields:** outcome status (`pending` | `recovered` | `not_recovered` | `unknown`), recovered amount, timestamps, linked case and action ids.
-
-Outcome is **observed**, not claimed by the LLM. Recovery metrics in the product spec are computed from this layer.
-
----
-
-## 8. Audit logging
-
-**Role:** Append-only record of the full path for every case.
-
-**Minimum stages logged:** event received, detection, AI proposal, policy decision, execution (if any), outcome updates.
-
-**Properties:**
-
-- Immutable inserts (no update-in-place of past decisions).
-- Correlation ids: `event_id`, `case_id`, `proposal_id`, `policy_decision_id`, `execution_id`.
-- Payload: enough to reconstruct answers in the product vision (what / why / recoverable / action / allowed / recovered).
-
-Audit is written by each layer; it is not optional for “simple” paths.
-
-```mermaid
-sequenceDiagram
-  participant Ev as Ingestion
-  participant Det as Detection
-  participant AI as AI agent
-  participant Pol as Policy
-  participant Ex as Executor
-  participant Out as Outcome
-  participant Aud as Audit log
-  Ev->>Aud: event
-  Det->>Aud: risk case
-  AI->>Aud: proposal
-  Pol->>Aud: approved or rejected
-  alt approved
-    Ex->>Aud: execution result
-    Out->>Aud: recovery outcome
-  end
-```
-
----
-
-## 9. Razorpay integration boundary
-
-**Inside the boundary:**
-
-- Test Mode keys and webhook secret (environment only; never in git).
-- Webhook **receive** path → event ingestion.
-- **Read** APIs if needed to hydrate a case (payment/order fetch).
-- **Write** APIs **only** from the action executor, and only for policy-approved action types.
-
-**Outside the boundary:**
-
-- AI agent, policy engine, and frontend must not hold Razorpay write credentials in application logic that skips the executor.
-- Live/production mode is out of MVP.
-
-No Razorpay connection is created in this documentation-only phase.
-
----
-
-## 10. Database boundary
-
-**MVP:** SQLite via SQLAlchemy.
-
-**Logical stores (tables to be designed at implementation time):**
-
-- Events (raw/normalized intake)
-- Risk cases
-- AI proposals
-- Policy decisions
-- Executions
-- Outcomes
-- Audit entries (or audit as the canonical event log plus projections)
-
-**Boundary rules:**
-
-- Application access through repositories / SQLAlchemy models, not ad-hoc SQL from the frontend.
-- PostgreSQL is a later swap if required (same schemas, different engine URL).
-- Secrets are not stored in the database in plaintext if avoidable; webhook secrets stay in env.
-
----
-
-## 11. Frontend boundary
-
-**Stack:** Next.js / React, Tailwind CSS.
-
-**Operator surfaces (MVP intent):**
-
-- List of revenue-at-risk cases
-- Case detail: facts, AI proposal, policy decision, execution, outcome
-- Audit timeline for a case
-
-**Boundary:**
-
-- Frontend talks to **FastAPI** only (REST or similar).
-- No direct SQLite access, no Razorpay keys, no LLM API keys in the browser.
-- Frontend may display rejected proposals; it must not trigger executor without a backend policy check.
-
----
-
-## 12. Future scaling considerations
-
-| Area | Later change |
-|------|----------------|
-| Database | SQLite → PostgreSQL if concurrency or size requires it |
-| Ingestion | Async queue if webhook volume grows |
-| Detection | Additional detectors per leakage category, same case model |
-| AI | Tool calling for investigation; still no direct financial control |
-| Policy | Merchant-configurable rule packs, versioned |
-| Executor | More adapters; still approval-gated |
-| Multi-tenant | Merchant isolation if more than one Buildathon merchant |
-| Infra | Docker as defined for the project; horizontal API workers if needed |
-
-Scaling must preserve the pipeline: **Event → Detection → AI → Proposal → Policy → Executor → Outcome → Audit.**
----
+This allows AI to provide contextual intelligence while keeping critical decisions deterministic, controlled, and observable.
